@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkyPulse Control Tower — Real-Time Flight Monitoring</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">SkyPulse Control Tower</div>
+        <div class="brand-sub">
+          <span id="live-dot" class="live-dot"></span>
+          <span id="airport-subtitle">Loading airport...</span>
+          <span>&bull;</span>
+          <span id="local-clock" class="mono">--:--:--</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="tabs" role="tablist">
+        <button class="tab-btn active" data-view="all">Unified Tower</button>
+        <button class="tab-btn" data-view="passenger">Passenger FIDS</button>
+        <button class="tab-btn" data-view="ops">Airspace &amp; Ops</button>
+      </div>
+
+      <select id="airport-select" title="Monitored Airport">
+        <option value="BLR">BLR — Bengaluru</option>
+      </select>
+
+      <select id="refresh-select" title="Auto-refresh interval">
+        <option value="5000" selected>Auto: 5s</option>
+        <option value="10000">Auto: 10s</option>
+        <option value="30000">Auto: 30s</option>
+        <option value="0">Paused</option>
+      </select>
+
+      <button id="refresh-btn" class="btn" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="error-banner" class="banner-error"></div>
+    <div id="info-banner" class="banner-info"></div>
+
+    <!-- KPI Strip -->
+    <section class="kpi-grid">
+      <div class="card kpi-card">
+        <div class="kpi-label">Arrivals Today</div>
+        <div id="kpi-arrivals" class="kpi-value">--</div>
+        <div id="kpi-arrivals-sub" class="kpi-sub">Next hour: --</div>
+      </div>
+      <div class="card kpi-card">
+        <div class="kpi-label">Departures Today</div>
+        <div id="kpi-departures" class="kpi-value">--</div>
+        <div id="kpi-departures-sub" class="kpi-sub">Next hour: --</div>
+      </div>
+      <div class="card kpi-card">
+        <div class="kpi-label">On-Time Performance</div>
+        <div id="kpi-ontime" class="kpi-value">--%</div>
+        <div class="progress-track"><div id="kpi-ontime-bar" class="progress-fill" style="width: 0%"></div></div>
+        <div id="kpi-ontime-sub" class="kpi-sub">Delayed: -- &bull; Cancelled: --</div>
+      </div>
+      <div class="card kpi-card">
+        <div class="kpi-label">Average Delay</div>
+        <div id="kpi-delay" class="kpi-value">-- min</div>
+        <div class="kpi-sub">Threshold: &gt;15 min delayed</div>
+      </div>
+      <div class="card kpi-card">
+        <div class="kpi-label">Active Airspace (5m)</div>
+        <div id="kpi-airspace" class="kpi-value">-- / --</div>
+        <div class="kpi-sub">Airborne / On Ground</div>
+      </div>
+      <div class="card kpi-card">
+        <div class="kpi-label">Congestion Index</div>
+        <div id="kpi-congestion" class="kpi-value">--</div>
+        <div id="kpi-congestion-sub" class="kpi-sub">Status: --</div>
+      </div>
+    </section>
+
+    <!-- Radar + Weather -->
+    <section id="section-radar" class="grid-main">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Live Airspace Radar</div>
+            <div class="card-subtitle">Real-time aircraft positions from Flink enrichment (<code>flights_current</code>)</div>
+          </div>
+          <div class="legend">
+            <span class="legend-item"><span class="dot" style="background:#38bdf8"></span>Approach</span>
+            <span class="legend-item"><span class="dot" style="background:#f59e0b"></span>Departing</span>
+            <span class="legend-item"><span class="dot" style="background:#818cf8"></span>Enroute</span>
+            <span class="legend-item"><span class="dot" style="background:#10b981"></span>Ground</span>
+          </div>
+        </div>
+        <div class="radar-wrap">
+          <div id="radar-map"></div>
+          <div id="aircraft-list" class="aircraft-list"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Airport Weather &amp; Risk</div>
+            <div id="weather-observed" class="card-subtitle">Observed: --</div>
+          </div>
+          <span id="weather-risk-pill" class="pill pill-slate">--</span>
+        </div>
+        <div class="weather-hero">
+          <div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Surface Temperature</div>
+            <div id="w-temp" class="weather-temp">--&deg;C</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Wind Vector</div>
+            <div id="w-wind-hero" class="mono" style="font-size:18px;font-weight:700">-- km/h</div>
+            <div id="w-gusts" style="font-size:12px;color:var(--muted)">Gusts: --</div>
+          </div>
+        </div>
+        <div class="weather-grid">
+          <div class="weather-stat">
+            <div class="weather-stat-label">Visibility</div>
+            <div id="w-vis" class="weather-stat-val">--</div>
+          </div>
+          <div class="weather-stat">
+            <div class="weather-stat-label">Precipitation</div>
+            <div id="w-precip" class="weather-stat-val">--</div>
+          </div>
+          <div class="weather-stat">
+            <div class="weather-stat-label">Cloud Cover</div>
+            <div id="w-cloud" class="weather-stat-val">--</div>
+          </div>
+          <div class="weather-stat">
+            <div class="weather-stat-label">Wind Direction</div>
+            <div id="w-dir" class="weather-stat-val">--</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Passenger FIDS -->
+    <section id="section-fids" class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Live Flight Information Display (FIDS)</div>
+          <div id="fids-count" class="card-subtitle">Showing 0 flights</div>
+        </div>
+        <div class="fids-toolbar">
+          <div class="tabs">
+            <button class="tab-btn active" data-dir="ALL">All</button>
+            <button class="tab-btn" data-dir="ARRIVAL">Arrivals</button>
+            <button class="tab-btn" data-dir="DEPARTURE">Departures</button>
+          </div>
+          <select id="status-filter">
+            <option value="ALL">All Statuses</option>
+            <option value="Scheduled">Scheduled</option>
+            <option value="In air">In air</option>
+            <option value="Delayed">Delayed</option>
+            <option value="Landed">Landed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+          <input id="flight-search" type="text" placeholder="Search flight, airline, city..." />
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Flight</th>
+              <th>Airline</th>
+              <th>Dir</th>
+              <th>Origin / Dest</th>
+              <th>Scheduled</th>
+              <th>Expected</th>
+              <th>Delay</th>
+              <th>Term / Gate</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="fids-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Operations Charts -->
+    <section id="section-charts" class="grid-3">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">5-Min Movements &amp; Congestion</div>
+            <div class="card-subtitle">Tumbling window metrics (<code>airport_metrics_5min</code>)</div>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="chart-5min"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Hourly Traffic &amp; Avg Delay</div>
+            <div class="card-subtitle">Rolling hourly ops (<code>v_hourly_ops</code>)</div>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="chart-hourly"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Flight Status Mix</div>
+            <div class="card-subtitle">Schedule breakdown</div>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="chart-status"></canvas></div>
+      </div>
+    </section>
+
+    <!-- Delay vs Weather + Pipeline Health -->
+    <section id="section-ops-bottom" class="grid-2">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Delay vs Wind Speed</div>
+            <div class="card-subtitle">Hourly correlation (<code>v_delay_vs_weather</code>)</div>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="chart-delay-weather"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Streaming Pipeline Health</div>
+            <div class="card-subtitle">Latest producer &amp; pipeline heartbeats (<code>v_pipeline_status</code>)</div>
+          </div>
+          <div style="font-size:12px;color:var(--muted)">Last sync: <span id="last-sync" class="mono">--</span></div>
+        </div>
+        <div id="pipeline-grid" class="pipeline-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

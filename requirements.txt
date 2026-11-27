@@ -1,0 +1,8 @@
+# Host-side dependencies (producers, setup scripts, tests).
+# PyFlink, the Kafka/JDBC connector JARs and Superset are installed inside their Docker images.
+confluent-kafka>=2.3.0
+requests>=2.31.0
+pytest>=8.0.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+psycopg2-binary>=2.9.9
