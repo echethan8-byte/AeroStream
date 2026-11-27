@@ -45,6 +45,15 @@ def test_analytics_uses_event_time_windows():
     assert "'5MIN'" in sql and "'1HOUR'" in sql
 
 
+def test_enrichment_handles_all_configured_airports():
+    from config.settings import AIRPORTS
+    from flink_jobs import flight_enrichment as fe
+
+    sql = "\n".join(fe.inserts())
+    for code in AIRPORTS:
+        assert f"WHEN '{code}'" in sql
+
+
 def test_sink_keys_match_database_constraints():
     from pathlib import Path
 

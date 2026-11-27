@@ -159,6 +159,20 @@ def phase_sql(
     )
 
 
+def multi_airport_phase_sql(
+    airports: list[Airport],
+    default_airport: Airport,
+    rules: PhaseRules = PhaseRules(),
+    prefix: str = "",
+) -> str:
+    """Emit a CASE dispatch over airport_code so one Flink job handles multiple airports."""
+    branches = "\n".join(
+        f"WHEN '{ap.iata}' THEN {phase_sql(ap, rules, prefix=prefix)}"
+        for ap in airports
+    )
+    return f"CASE {prefix}airport_code\n{branches}\nELSE {phase_sql(default_airport, rules, prefix=prefix)}\nEND"
+
+
 # --------------------------------------------------------------------------- congestion
 
 

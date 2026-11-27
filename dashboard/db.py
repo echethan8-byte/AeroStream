@@ -194,10 +194,19 @@ def fetch_dashboard_state(airport_code: str | None = None, direction: str | None
                 "FROM v_pipeline_status ORDER BY component",
             )
 
+            live_rows = _query_all(
+                cur,
+                "SELECT DISTINCT airport_code FROM flights_current "
+                "UNION SELECT DISTINCT airport_code FROM flight_schedules "
+                "UNION SELECT DISTINCT airport_code FROM weather_current",
+            )
+            live_airports = sorted(r["airport_code"] for r in live_rows if r.get("airport_code"))
+
     return {
         "server_time_utc": datetime.now(timezone.utc).isoformat(),
         "airport_code": code,
         "monitored_airport": cfg.airport_code.upper(),
+        "live_airports": live_airports,
         "terminal_radius_deg": cfg.terminal_radius_deg,
         "airports": airports,
         "selected_airport": selected_airport,

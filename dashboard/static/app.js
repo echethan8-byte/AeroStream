@@ -468,10 +468,11 @@
     const select = $("airport-select");
     const airports = data.airports || [];
     const monitored = data.monitored_airport || "BLR";
+    const liveSet = new Set(data.live_airports || [monitored]);
     if (!airports.length) return;
     select.innerHTML = airports
       .map((a) => {
-        const tag = a.airport_code === monitored ? " • LIVE" : "";
+        const tag = liveSet.has(a.airport_code) ? " • LIVE" : "";
         return `<option value="${a.airport_code}">${a.airport_code} — ${a.airport_name}${tag}</option>`;
       })
       .join("");
@@ -483,11 +484,12 @@
 
     const infoEl = $("info-banner");
     const hasData = Boolean((data.aircraft && data.aircraft.length) || (data.passenger_flights && data.passenger_flights.length) || data.weather);
-    if (!hasData && data.airport_code !== monitored) {
-      infoEl.innerHTML = `<span>No active stream for <strong>${data.airport_code}</strong>. The pipeline is currently configured to monitor <strong>${monitored}</strong> (set <code>AIRPORT_CODE=${data.airport_code}</code> in <code>.env</code> and restart to switch).</span><button id="jump-monitored-btn" class="btn" type="button">View ${monitored} Live</button>`;
+    if (!hasData && !liveSet.has(data.airport_code)) {
+      const fallback = data.live_airports?.[0] || monitored;
+      infoEl.innerHTML = `<span>No active stream for <strong>${data.airport_code}</strong>. Add it to <code>AIRPORT_CODES</code> in <code>.env</code> and restart producers to stream it.</span><button id="jump-monitored-btn" class="btn" type="button">View ${fallback} Live</button>`;
       infoEl.style.display = "flex";
       $("jump-monitored-btn").addEventListener("click", () => {
-        state.airport = monitored;
+        state.airport = fallback;
         refresh();
       });
     } else {

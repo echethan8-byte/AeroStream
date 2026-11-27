@@ -44,31 +44,34 @@ def main() -> None:
     args = parse_args(__doc__.splitlines()[0])
     setup_logging()
     cfg = get_settings()
-    airport = cfg.airport
+    airports = cfg.airports
     producer = KafkaJsonProducer()
     mock = cfg.mock_mode or args.mock
     session = http_session()
 
     def poll() -> int:
-        if mock:
-            from producers.mock_data import mock_weather
+        now, sent = utc_now(), 0
+        for airport in airports:
+            if mock:
+                from producers.mock_data import mock_weather
 
-            event = mock_weather(airport, utc_now())
-        else:
-            resp = session.get(
-                URL,
-                params={"latitude": airport.latitude, "longitude": airport.longitude,
-                        "current": CURRENT_VARS, "timezone": "UTC", "wind_speed_unit": "kmh"},
-                timeout=20,
-            )
-            if resp.status_code == 429:
-                raise RateLimited(600, "Open-Meteo 429")
-            resp.raise_for_status()
-            event = parse_current(resp.json(), airport.iata)
-            if event is None:
-                raise RuntimeError("Open-Meteo response had no 'current' block")
-        producer.send(Topics.WEATHER_RAW, event, key=airport.iata)
-        return 1
+                event = mock_weather(airport, now)
+            else:
+                resp = session.get(
+                    URL,
+                    params={"latitude": airport.latitude, "longitude": airport.longitude,
+                            "current": CURRENT_VARS, "timezone": "UTC", "wind_speed_unit": "kmh"},
+                    timeout=20,
+                )
+                if resp.status_code == 429:
+                    raise RateLimited(600, "Open-Meteo 429")
+                resp.raise_for_status()
+                event = parse_current(resp.json(), airport.iata)
+                if event is None:
+                    raise RuntimeError(f"Open-Meteo response had no 'current' block for {airport.iata}")
+            producer.send(Topics.WEATHER_RAW, event, key=airport.iata)
+            sent += 1
+        return sent
 
     run_poll_loop("weather_producer", cfg.weather_poll_seconds, poll, producer, once=args.once)
 

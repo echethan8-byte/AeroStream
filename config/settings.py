@@ -59,6 +59,7 @@ def _bool(name: str, default: bool = False) -> bool:
 @dataclass(frozen=True)
 class Settings:
     airport_code: str
+    airport_codes: tuple[str, ...]
     kafka_bootstrap: str
     mock_mode: bool
 
@@ -92,11 +93,31 @@ class Settings:
                 f"and database/schema.sql (airport_reference)"
             ) from exc
 
+    @property
+    def airports(self) -> list[Airport]:
+        out: list[Airport] = []
+        for code in self.airport_codes:
+            try:
+                out.append(AIRPORTS[code])
+            except KeyError as exc:
+                raise ValueError(
+                    f"Unknown airport code {code!r} in AIRPORT_CODES; add it to config/settings.py AIRPORTS "
+                    f"and database/schema.sql (airport_reference)"
+                ) from exc
+        return out
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    primary = _env("AIRPORT_CODE", "BLR").upper()
+    raw_codes = _env("AIRPORT_CODES")
+    if raw_codes:
+        codes = tuple(dict.fromkeys(c.strip().upper() for c in raw_codes.split(",") if c.strip()))
+    else:
+        codes = (primary,)
     return Settings(
-        airport_code=_env("AIRPORT_CODE", "BLR").upper(),
+        airport_code=primary,
+        airport_codes=codes or (primary,),
         kafka_bootstrap=_env("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092"),
         mock_mode=_bool("MOCK_MODE", False),
         opensky_client_id=_env("OPENSKY_CLIENT_ID"),

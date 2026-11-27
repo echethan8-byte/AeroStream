@@ -103,7 +103,7 @@ def main() -> None:
     args = parse_args(__doc__.splitlines()[0])
     setup_logging()
     cfg = get_settings()
-    airport = cfg.airport
+    airports = cfg.airports
     producer = KafkaJsonProducer()
     mock = cfg.mock_mode or args.mock
 
@@ -111,22 +111,28 @@ def main() -> None:
         from producers.mock_data import mock_states
 
         def poll() -> int:
-            events = mock_states(airport, utc_now())
-            for e in events:
-                producer.send(Topics.FLIGHTS_RAW, e, key=e["icao24"])
-            return len(events)
+            now, sent = utc_now(), 0
+            for airport in airports:
+                events = mock_states(airport, now)
+                for e in events:
+                    producer.send(Topics.FLIGHTS_RAW, e, key=e["icao24"])
+                sent += len(events)
+            return sent
     else:
         session = http_session()
         auth = OpenSkyAuth(session, cfg.opensky_client_id, cfg.opensky_client_secret)
-        bbox = airport.bbox(cfg.bbox_radius_deg)
         if not cfg.opensky_client_id:
             log.warning("No OpenSky credentials: anonymous access has very low rate limits")
 
         def poll() -> int:
-            events = parse_response(fetch_states(session, auth, bbox), airport.iata)
-            for e in events:
-                producer.send(Topics.FLIGHTS_RAW, e, key=e["icao24"])
-            return len(events)
+            sent = 0
+            for airport in airports:
+                bbox = airport.bbox(cfg.bbox_radius_deg)
+                events = parse_response(fetch_states(session, auth, bbox), airport.iata)
+                for e in events:
+                    producer.send(Topics.FLIGHTS_RAW, e, key=e["icao24"])
+                sent += len(events)
+            return sent
 
     run_poll_loop("flight_producer", cfg.opensky_poll_seconds, poll, producer, once=args.once)
 

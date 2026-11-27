@@ -13,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config.rules import PhaseRules, phase_sql  # noqa: E402
-from config.settings import Topics, get_settings  # noqa: E402
+from config.rules import PhaseRules, multi_airport_phase_sql  # noqa: E402
+from config.settings import AIRPORTS, Topics, get_settings  # noqa: E402
 from flink_jobs.common import create_table, jdbc_with, kafka_with, run_job  # noqa: E402
 
 JOB_NAME = "flight-enrichment"
@@ -49,7 +49,12 @@ def ddl() -> list[str]:
 
 def inserts() -> list[str]:
     cfg = get_settings()
-    phase = phase_sql(cfg.airport, PhaseRules(terminal_radius_deg=cfg.terminal_radius_deg), prefix="f.")
+    phase = multi_airport_phase_sql(
+        list(AIRPORTS.values()),
+        cfg.airport,
+        PhaseRules(terminal_radius_deg=cfg.terminal_radius_deg),
+        prefix="f.",
+    )
     return [
         f"""
 INSERT INTO flights_enriched

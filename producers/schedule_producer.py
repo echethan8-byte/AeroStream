@@ -109,7 +109,7 @@ def main() -> None:
     args = parse_args(__doc__.splitlines()[0])
     setup_logging()
     cfg = get_settings()
-    airport = cfg.airport
+    airports = cfg.airports
     producer = KafkaJsonProducer()
     mock = cfg.mock_mode or args.mock
 
@@ -117,30 +117,37 @@ def main() -> None:
         from producers.mock_data import mock_schedules
 
         def poll() -> int:
-            records = mock_schedules(airport, utc_now())
-            for r in records:
-                producer.send(Topics.SCHEDULES_RAW, r, key=r["flight_key"])
-            return len(records)
+            now, sent = utc_now(), 0
+            for airport in airports:
+                records = mock_schedules(airport, now)
+                for r in records:
+                    producer.send(Topics.SCHEDULES_RAW, r, key=r["flight_key"])
+                sent += len(records)
+            return sent
     else:
         if not cfg.aviationstack_key:
             raise SystemExit("AVIATIONSTACK_API_KEY is not set (or run with --mock / MOCK_MODE=true)")
         session = http_session()
-        log.warning("Each cycle uses %d API requests; check your Aviationstack quota", 2 * cfg.aviationstack_max_pages)
+        log.warning(
+            "Each cycle uses %d API requests; check your Aviationstack quota",
+            2 * cfg.aviationstack_max_pages * len(airports),
+        )
 
         def poll() -> int:
             now, sent = utc_now(), 0
-            for direction, param in (("DEPARTURE", "dep_iata"), ("ARRIVAL", "arr_iata")):
-                for page in range(cfg.aviationstack_max_pages):
-                    body = fetch_page(session, cfg.aviationstack_base_url, cfg.aviationstack_key,
-                                      {param: airport.iata}, offset=page * 100)
-                    items = body.get("data") or []
-                    for item in items:
-                        rec = parse_flight(item, direction, airport.iata, now)
-                        if rec:
-                            producer.send(Topics.SCHEDULES_RAW, rec, key=rec["flight_key"])
-                            sent += 1
-                    if len(items) < 100:
-                        break
+            for airport in airports:
+                for direction, param in (("DEPARTURE", "dep_iata"), ("ARRIVAL", "arr_iata")):
+                    for page in range(cfg.aviationstack_max_pages):
+                        body = fetch_page(session, cfg.aviationstack_base_url, cfg.aviationstack_key,
+                                          {param: airport.iata}, offset=page * 100)
+                        items = body.get("data") or []
+                        for item in items:
+                            rec = parse_flight(item, direction, airport.iata, now)
+                            if rec:
+                                producer.send(Topics.SCHEDULES_RAW, rec, key=rec["flight_key"])
+                                sent += 1
+                        if len(items) < 100:
+                            break
             return sent
 
     run_poll_loop("schedule_producer", cfg.aviationstack_poll_seconds, poll, producer, once=args.once)

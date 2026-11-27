@@ -83,3 +83,14 @@ def test_mock_generators_are_labelled_and_valid():
     assert len({s["flight_key"] for s in sched}) == len(sched)
     w = mock_weather(BLR, NOW)
     assert w["source"] == "mock" and w["weather_timestamp"].endswith("Z")
+
+
+def test_mock_multi_airport_ids_do_not_collide():
+    bom = AIRPORTS["BOM"]
+    blr_states = mock_states(BLR, NOW)
+    bom_states = mock_states(bom, NOW)
+    assert {s["icao24"] for s in blr_states}.isdisjoint({s["icao24"] for s in bom_states})
+
+    blr_sched = mock_schedules(BLR, NOW)
+    bom_sched = mock_schedules(bom, NOW)
+    assert {s["flight_key"] for s in blr_sched}.isdisjoint({s["flight_key"] for s in bom_sched})

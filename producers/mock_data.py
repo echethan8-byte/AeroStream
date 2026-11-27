@@ -13,9 +13,13 @@ from config.settings import Airport
 from producers.kafka_utils import iso_utc
 
 
+_FLIGHT_OFFSET = {"BLR": 500, "BOM": 600, "DEL": 700, "MAA": 800}
+
+
 def mock_states(airport: Airport, now: datetime, count: int = 14) -> list[dict]:
     """Aircraft around the airport in different phases. Positions drift with time."""
-    rng = random.Random(int(now.timestamp()) // 30)
+    rng = random.Random(f"{int(now.timestamp()) // 30}:{airport.iata}")
+    prefix = airport.iata.lower()
     out = []
     for i in range(count):
         kind = ["arriving", "departing", "ground", "enroute"][i % 4]
@@ -30,8 +34,8 @@ def mock_states(airport: Airport, now: datetime, count: int = 14) -> list[dict]:
             dist, alt, vr, v, on_ground = rng.uniform(0.3, 0.48), rng.uniform(6000, 11000), rng.uniform(-1, 1), rng.uniform(200, 250), False
         out.append(
             {
-                "icao24": f"mock{i:02d}",
-                "callsign": f"MCK{100 + i}",
+                "icao24": f"{prefix}{i:02d}",
+                "callsign": f"{airport.iata}{100 + i}",
                 "origin_country": "India",
                 "latitude": round(airport.latitude + dist * math.cos(bearing), 5),
                 "longitude": round(airport.longitude + dist * math.sin(bearing), 5),
@@ -50,9 +54,10 @@ def mock_states(airport: Airport, now: datetime, count: int = 14) -> list[dict]:
 
 def mock_schedules(airport: Airport, now: datetime) -> list[dict]:
     """~24 flights spread over -3h..+6h with a mix of statuses and delays. Stable keys => upserts."""
-    rng = random.Random(now.strftime("%Y%m%d%H"))
-    cities = [c for c in ("DEL", "BOM", "MAA", "HYD", "CCU", "GOI", "COK") if c != airport.iata]
+    rng = random.Random(f"{now.strftime('%Y%m%d%H')}:{airport.iata}")
+    cities = [c for c in ("BLR", "DEL", "BOM", "MAA", "HYD", "CCU", "GOI", "COK") if c != airport.iata]
     airlines = [("IndiGo", "6E"), ("Air India", "AI"), ("Akasa Air", "QP"), ("SpiceJet", "SG")]
+    offset = _FLIGHT_OFFSET.get(airport.iata, 900)
     base = now.replace(minute=0, second=0, microsecond=0)
     out = []
     for n in range(24):
@@ -70,7 +75,7 @@ def mock_schedules(airport: Airport, now: datetime) -> list[dict]:
             status = "landed" if direction == "ARRIVAL" else "active"
         else:
             status = "scheduled"
-        number = f"{code}{500 + n}"
+        number = f"{code}{offset + n}"
         rec = {
             "flight_key": f"{number}_{scheduled.date()}_{airport.iata if direction == 'DEPARTURE' else city}",
             "airport_code": airport.iata,
@@ -102,7 +107,7 @@ def mock_schedules(airport: Airport, now: datetime) -> list[dict]:
 
 
 def mock_weather(airport: Airport, now: datetime) -> dict:
-    rng = random.Random(int(now.timestamp()) // 300)
+    rng = random.Random(f"{int(now.timestamp()) // 300}:{airport.iata}")
     storm = rng.random() < 0.15
     return {
         "airport_code": airport.iata,
