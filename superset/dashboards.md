@@ -1,44 +1,43 @@
-# Superset dashboards
+# Building the two dashboards in Superset
 
-Run `python scripts/setup_superset.py` to register the database and datasets, then run
-`python scripts/create_superset_dashboards.py` to create or update both dashboards and charts.
-Both dashboards read the same PostgreSQL tables/views (no second pipeline). Open
-http://localhost:8088 (default login admin / admin, change it).
+Run `python scripts/setup_superset.py` first to register the PostgreSQL database and datasets, then run `python scripts/create_superset_dashboards.py` to auto-create/update both airport-wise dashboards.
+Both dashboards read the same PostgreSQL tables/views (no second pipeline).
+Open http://localhost:8088 (default login admin / admin, change it).
 
-Both dashboards include an **Airport** dropdown at the top. Select BLR, BOM, DEL, or MAA to
-filter the dashboard charts for that airport; the default selection is BLR. Flight, weather,
-and operations tables include `airport_code` so the selected airport is visible in the results.
-The pipeline-health chart is global because it reports producer status across the whole pipeline.
-Dashboards refresh every 5 seconds.
+## Dashboard 1: Passenger dashboard (auto-refresh 10 s)
 
-## Dashboard 1: Passenger dashboard (auto-refresh 30 s)
+Includes multi-select native filters for **Airport** (`airport_code`: `BLR`, `BOM`, `DEL`, `MAA`) and **Direction** (`ARRIVAL` / `DEPARTURE`). When no airport filter is selected, totals/averages aggregate across all monitored airports while the comparison charts and tables show every airport side-by-side.
 
 | Chart | Type | Dataset | Configuration |
 |---|---|---|---|
-| Arrivals today / Departures today | Big Number | `v_passenger_kpis` | metric `MAX(arrivals_today)` / `MAX(departures_today)` |
-| Arrivals / departures next hour | Big Number | `v_passenger_kpis` | `MAX(arrivals_next_hour)` / `MAX(departures_next_hour)` |
-| Delayed / Cancelled | Big Number | `v_passenger_kpis` | `MAX(delayed_flights)` / `MAX(cancelled_flights)` |
-| On-time % | Big Number | `v_passenger_kpis` | `MAX(on_time_percentage)` |
-| Average delay (min) | Big Number | `v_passenger_kpis` | `MAX(average_delay_min)` |
-| **Live flight information** | Table (raw records) | `v_passenger_flights` | columns: flight_number, airline, direction, city_airport, scheduled_local, expected_local, status, terminal, gate; order by `scheduled_local` |
-| Status mix | Pie | `v_passenger_flights` | dimension `status`, metric `COUNT(*)` |
-| Airport weather | Table | `v_weather_latest` | temperature, wind_speed, visibility, precipitation, observed_local |
+| Arrivals Today / Departures Today | Big Number | `v_passenger_kpis` | `SUM(arrivals_today)` / `SUM(departures_today)` |
+| Arrivals / Departures Next Hour | Big Number | `v_passenger_kpis` | `SUM(arrivals_next_hour)` / `SUM(departures_next_hour)` |
+| Delayed and Cancelled | Big Number | `v_passenger_kpis` | `SUM(delayed_flights)` |
+| On-Time Percentage / Average Delay | Big Number | `v_passenger_kpis` | `AVG(on_time_percentage)` / `AVG(average_delay_min)` |
+| Airport-Wise Passenger KPIs | Table | `v_passenger_kpis` | All KPI columns ordered by `airport_code` |
+| Arrivals & Departures by Airport | Bar | `v_passenger_kpis` | x `airport_code`, `MAX(arrivals_today)`, `MAX(departures_today)` |
+| On-Time % & Avg Delay by Airport | Bar | `v_passenger_kpis` | x `airport_code`, `MAX(on_time_percentage)`, `MAX(average_delay_min)` |
+| Airport Weather | Table | `v_weather_latest` | `airport_code`, temperature, wind_speed, visibility, precipitation, weather_risk, observed_local |
+| **Live Flight Information** | Table | `v_passenger_flights` | `airport_code`, flight_number, airline, direction, city_airport, scheduled_local, expected_local, delay_minutes, status, terminal, gate |
+| Passenger Status Mix | Pie | `v_passenger_flights` | dimension `status`, metric `COUNT(*)` |
 
-An airport filter is already created by the setup script. Add a `direction` filter in Superset
-if you also want to narrow the passenger flight table to arrivals or departures.
+## Dashboard 2: Airport operations dashboard (auto-refresh 10 s)
 
-## Dashboard 2: Airport operations dashboard (auto-refresh 1 min)
+Includes a multi-select native filter for **Airport** (`airport_code`) and breaks out every chart by `airport_code`.
 
 | Chart | Type | Dataset | Configuration |
 |---|---|---|---|
-| Airborne / on ground now | Big Number | `v_aircraft_now` | `MAX(airborne_aircraft)` / `MAX(ground_aircraft)` |
-| Arrivals & departures per hour | Time-series bar | `v_hourly_ops` | x `hour_local`, metrics `MAX(arrivals)`, `MAX(departures)` |
-| Movements per 5 minutes | Time-series line | `airport_metrics_5min` | x `window_start`, metric `MAX(total_movements)` |
-| Congestion | Gauge / Big Number | `v_ops_current` | `MAX(congestion_index)`, show `congestion_level` |
-| Average arrival / departure delay by hour | Time-series line | `v_hourly_ops` | `MAX(avg_arrival_delay_min)`, `MAX(avg_departure_delay_min)` |
-| Weather risk | Table | `v_ops_current` | window_start, weather_risk |
-| Delay vs weather | Scatter / mixed | `v_delay_vs_weather` | x `avg_wind_kmh` or `min_visibility_m`, y `avg_delay_min` |
-| Pipeline health | Table | `v_pipeline_status` | component, status, records_published, event_timestamp |
+| Airborne / Ground Aircraft Now | Big Number | `v_aircraft_now` | `SUM(airborne_aircraft)` / `SUM(ground_aircraft)` |
+| Live Airspace by Airport | Table | `v_aircraft_now` | `airport_code`, airborne_aircraft, ground_aircraft, tracked_aircraft |
+| Current Operations by Airport | Table | `v_ops_current` | `airport_code`, arrivals, departures, total_movements, congestion_index, congestion_level, weather_risk, window_start |
+| Airborne vs Ground by Airport | Bar | `v_aircraft_now` | x `airport_code`, `MAX(airborne_aircraft)`, `MAX(ground_aircraft)` |
+| Congestion Index by Airport | Bar | `v_ops_current` | x `airport_code`, `MAX(congestion_index)` |
+| Movements per 5 Minutes | Time-series line | `airport_metrics_5min` | x `window_start`, grouped by `airport_code`, `MAX(total_movements)` |
+| Arrivals & Departures per Hour | Time-series bar | `v_hourly_ops` | x `hour_local`, grouped by `airport_code`, `MAX(arrivals)`, `MAX(departures)` |
+| Average Delay by Hour | Time-series line | `v_hourly_ops` | x `hour_local`, grouped by `airport_code`, `MAX(avg_arrival_delay_min)`, `MAX(avg_departure_delay_min)` |
+| Delay vs Wind | Scatter | `v_delay_vs_weather` | x `avg_wind_kmh`, grouped by `airport_code`, `MAX(avg_delay_min)` |
+| Weather Risk | Table | `v_ops_current` | `airport_code`, window_start, congestion_level, weather_risk |
+| Pipeline Health | Table | `v_pipeline_status` | component, status, records_published, event_timestamp |
 
 ## Not available (and intentionally not faked)
 
