@@ -32,7 +32,6 @@ def count_metric(dataset):
 
 
 def dashboard_position(chart_ids, chart_names):
-    children = []
     components = {
         "ROOT_ID": {
             "type": "ROOT",
@@ -77,10 +76,39 @@ def dashboard_position(chart_ids, chart_names):
                 "sliceName": chart_name,
             },
         }
-        children.append(row_id)
-
     components["DASHBOARD_VERSION_KEY"] = "v2"
     return json.dumps(components)
+
+
+def airport_native_filter(dataset_ids, chart_ids, filter_id):
+    return {
+        "id": filter_id,
+        "controlValues": {
+            "enableEmptyFilter": False,
+            "defaultToFirstItem": False,
+            "multiSelect": False,
+            "searchAllOptions": False,
+            "inverseSelection": False,
+        },
+        "name": "Airport",
+        "filterType": "filter_select",
+        "targets": [
+            {"datasetId": dataset_id, "column": {"name": "airport_code"}}
+            for dataset_id in dataset_ids
+        ],
+        "defaultDataMask": {
+            "extraFormData": {
+                "filters": [{"col": "airport_code", "op": "IN", "val": ["BLR"]}]
+            },
+            "filterState": {"value": ["BLR"]},
+            "ownState": {},
+        },
+        "cascadeParentIds": [],
+        "scope": {"rootPath": ["ROOT_ID"], "excluded": []},
+        "type": "NATIVE_FILTER",
+        "chartsInScope": chart_ids,
+        "tabsInScope": [],
+    }
 
 
 def main():
@@ -168,7 +196,7 @@ def main():
          {"metric": simple_metric("kpis", "average_delay_min"), "adhoc_filters": [], "time_range": "No filter",
           "header_font_size": 0.4, "subheader_font_size": 0.15, "y_axis_format": ",.1f"}),
         ("Live Flight Information", "v_passenger_flights", "table",
-         {"all_columns": ["flight_number", "airline", "direction", "city_airport", "scheduled_local",
+         {"all_columns": ["airport_code", "flight_number", "airline", "direction", "city_airport", "scheduled_local",
                            "expected_local", "status", "terminal", "gate"],
           "adhoc_filters": [], "order_by_cols": ["[\"scheduled_local\",\"true\"]"],
           "page_length": 50, "table_timestamp_format": "smart_date", "color_pn": True}),
@@ -176,7 +204,7 @@ def main():
          {"groupby": ["status"], "metric": count_metric("passenger"), "adhoc_filters": [],
           "row_limit": 100, "show_labels": True, "show_legend": True}),
         ("Airport Weather", "v_weather_latest", "table",
-         {"all_columns": ["temperature", "wind_speed", "visibility", "precipitation", "observed_local"],
+         {"all_columns": ["airport_code", "temperature", "wind_speed", "visibility", "precipitation", "observed_local"],
           "adhoc_filters": [], "page_length": 50, "table_timestamp_format": "smart_date", "color_pn": True}),
     ]
 
@@ -207,7 +235,7 @@ def main():
           "groupby": [], "adhoc_filters": [], "row_limit": 100, "show_legend": True,
           "rich_tooltip": True, "y_axis_format": "SMART_NUMBER"}),
         ("Weather Risk", "v_ops_current", "table",
-         {"all_columns": ["window_start", "weather_risk"], "adhoc_filters": [],
+         {"all_columns": ["airport_code", "window_start", "weather_risk"], "adhoc_filters": [],
           "page_length": 50, "table_timestamp_format": "smart_date", "color_pn": True}),
         ("Delay vs Wind", "v_delay_vs_weather", "echarts_timeseries_scatter",
          {"x_axis": "avg_wind_kmh", "metrics": [simple_metric("delay", "avg_delay_min")],
@@ -223,9 +251,12 @@ def main():
 
     dashboards = [
         ("Passenger Dashboard", "passenger-dashboard", passenger_ids,
-         [spec[0] for spec in passenger_specs], 5),
+         [spec[0] for spec in passenger_specs], 5,
+         ["v_passenger_kpis", "v_passenger_flights", "v_weather_latest"], passenger_ids),
         ("Airport Operations Dashboard", "airport-operations-dashboard", operations_ids,
-         [spec[0] for spec in operations_specs], 5),
+         [spec[0] for spec in operations_specs], 5,
+         ["v_aircraft_now", "v_hourly_ops", "airport_metrics_5min", "v_ops_current", "v_delay_vs_weather"],
+         operations_ids[:-1]),
     ]
 
     existing_dashboards = session.get(
@@ -235,7 +266,18 @@ def main():
     ).json()["result"]
     dashboards_by_slug = {item["slug"]: item["id"] for item in existing_dashboards if item.get("slug")}
 
-    for title, slug, chart_ids, chart_names, refresh_seconds in dashboards:
+    for (title, slug, chart_ids, chart_names, refresh_seconds,
+         filter_datasets, filter_chart_ids) in dashboards:
+        native_filter = airport_native_filter(
+            [datasets[name] for name in filter_datasets],
+            filter_chart_ids,
+            f"NATIVE_FILTER-AIRPORT-{slug}",
+        )
+        metadata = {
+            "refresh_frequency": refresh_seconds,
+            "color_scheme": "supersetColors",
+            "native_filter_configuration": [native_filter],
+        }
         if slug in dashboards_by_slug:
             dashboard_id = dashboards_by_slug[slug]
             response = session.put(
@@ -245,11 +287,7 @@ def main():
                     "dashboard_title": title,
                     "published": True,
                     "position_json": dashboard_position(chart_ids, chart_names),
-                    "json_metadata": json.dumps({
-                        "refresh_frequency": refresh_seconds,
-                        "color_scheme": "supersetColors",
-                        "native_filter_configuration": [],
-                    }),
+                    "json_metadata": json.dumps(metadata),
                 },
                 timeout=30,
             )
@@ -264,11 +302,7 @@ def main():
                     "slug": slug,
                     "published": True,
                     "position_json": dashboard_position(chart_ids, chart_names),
-                    "json_metadata": json.dumps({
-                        "refresh_frequency": refresh_seconds,
-                        "color_scheme": "supersetColors",
-                        "native_filter_configuration": [],
-                    }),
+                    "json_metadata": json.dumps(metadata),
                 },
                 timeout=30,
             )

@@ -1,8 +1,15 @@
-# Building the two dashboards in Superset
+# Superset dashboards
 
-Run `python scripts/setup_superset.py` first; it registers the database and these datasets.
-Both dashboards read the same PostgreSQL tables/views (no second pipeline).
-Open http://localhost:8088 (default login admin / admin, change it).
+Run `python scripts/setup_superset.py` to register the database and datasets, then run
+`python scripts/create_superset_dashboards.py` to create or update both dashboards and charts.
+Both dashboards read the same PostgreSQL tables/views (no second pipeline). Open
+http://localhost:8088 (default login admin / admin, change it).
+
+Both dashboards include an **Airport** dropdown at the top. Select BLR, BOM, DEL, or MAA to
+filter the dashboard charts for that airport; the default selection is BLR. Flight, weather,
+and operations tables include `airport_code` so the selected airport is visible in the results.
+The pipeline-health chart is global because it reports producer status across the whole pipeline.
+Dashboards refresh every 5 seconds.
 
 ## Dashboard 1: Passenger dashboard (auto-refresh 30 s)
 
@@ -17,7 +24,8 @@ Open http://localhost:8088 (default login admin / admin, change it).
 | Status mix | Pie | `v_passenger_flights` | dimension `status`, metric `COUNT(*)` |
 | Airport weather | Table | `v_weather_latest` | temperature, wind_speed, visibility, precipitation, observed_local |
 
-Add a dashboard filter on `direction` and `airport_code`.
+An airport filter is already created by the setup script. Add a `direction` filter in Superset
+if you also want to narrow the passenger flight table to arrivals or departures.
 
 ## Dashboard 2: Airport operations dashboard (auto-refresh 1 min)
 
